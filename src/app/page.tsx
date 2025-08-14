@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import Image from 'next/image'
 import SherlockDetective from './components/SherlockDetective'
+import Link from 'next/link'
 
 interface Article {
   title: string
@@ -16,6 +17,8 @@ interface Article {
   source: {
     name: string
   }
+  relevanceScore?: number
+  content?: string
 }
 
 interface ScoredArticle extends Article {
@@ -86,6 +89,8 @@ export default function Home() {
   const [isWalking, setIsWalking] = useState(false)
   const [isClient, setIsClient] = useState(false)
   const [isHovering, setIsHovering] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [suggestedQuery, setSuggestedQuery] = useState<string | null>(null)
 
   // Initialize client-side state
   useEffect(() => {
@@ -226,38 +231,65 @@ export default function Home() {
   const fetchNews = async (query = '') => {
     try {
       setLoading(true)
-      const response = await axios.get(`https://newsapi.org/v2/everything`, {
-        params: {
-          q: query || (selectedTopic ? selectedTopic : 'news'),
-          apiKey: process.env.NEXT_PUBLIC_NEWS_API_KEY,
-          language: 'en',
-          sortBy: 'publishedAt',
-        },
-      })
+      setSearchError(null)
+      setSuggestedQuery(null)
 
-      // Category-specific keywords for better relevance matching
-      const categoryKeywords: { [key: string]: string[] } = {
-        technology: ['tech', 'technology', 'software', 'hardware', 'digital', 'computer', 'internet', 'ai', 'artificial intelligence', 'machine learning', 'data', 'cyber', 'startup', 'innovation'],
-        business: ['business', 'economy', 'market', 'finance', 'stock', 'trade', 'commerce', 'company', 'corporate', 'industry', 'enterprise', 'startup', 'venture'],
-        sports: ['sport', 'football', 'basketball', 'baseball', 'soccer', 'tennis', 'golf', 'olympics', 'championship', 'tournament', 'league', 'team', 'player', 'coach'],
-        entertainment: ['entertainment', 'movie', 'film', 'music', 'celebrity', 'actor', 'actress', 'director', 'producer', 'show', 'concert', 'performance', 'artist'],
-        health: ['health', 'medical', 'medicine', 'doctor', 'hospital', 'disease', 'treatment', 'patient', 'healthcare', 'wellness', 'fitness', 'nutrition', 'diet'],
-        science: ['science', 'scientific', 'research', 'study', 'discovery', 'experiment', 'laboratory', 'scientist', 'physics', 'chemistry', 'biology', 'astronomy'],
-        politics: ['politics', 'political', 'government', 'election', 'campaign', 'policy', 'law', 'legislation', 'congress', 'senate', 'president', 'minister'],
-        world: ['world', 'global', 'international', 'nation', 'country', 'foreign', 'diplomacy', 'summit', 'treaty', 'alliance', 'conflict', 'peace'],
-        environment: ['environment', 'climate', 'weather', 'nature', 'wildlife', 'conservation', 'pollution', 'sustainability', 'renewable', 'green', 'eco'],
-        education: ['education', 'school', 'university', 'college', 'student', 'teacher', 'academic', 'study', 'learning', 'curriculum', 'degree', 'course'],
-        food: ['food', 'cuisine', 'restaurant', 'chef', 'cooking', 'recipe', 'dining', 'culinary', 'gastronomy', 'nutrition', 'diet', 'meal'],
-        travel: ['travel', 'tourism', 'vacation', 'holiday', 'destination', 'trip', 'journey', 'adventure', 'exploration', 'tourist', 'resort', 'hotel'],
-        fashion: ['fashion', 'style', 'clothing', 'designer', 'model', 'runway', 'trend', 'apparel', 'accessory', 'beauty', 'cosmetic', 'brand'],
-        art: ['art', 'artist', 'exhibition', 'gallery', 'museum', 'painting', 'sculpture', 'design', 'creative', 'cultural', 'aesthetic', 'masterpiece'],
-        economy: ['economy', 'economic', 'finance', 'market', 'trade', 'commerce', 'industry', 'business', 'financial', 'monetary', 'fiscal', 'banking'],
-        crime: ['crime', 'criminal', 'law', 'police', 'investigation', 'justice', 'court', 'trial', 'sentence', 'offense', 'violation', 'enforcement'],
-        weather: ['weather', 'climate', 'forecast', 'temperature', 'storm', 'rain', 'snow', 'wind', 'hurricane', 'tornado', 'drought', 'flood'],
-        space: ['space', 'astronomy', 'cosmos', 'planet', 'star', 'galaxy', 'universe', 'satellite', 'rocket', 'mission', 'nasa', 'exploration']
+      // Enhanced search parameters for more relevant results
+      const searchParams = {
+        q: query || (selectedTopic ? selectedTopic : 'news'),
+        apiKey: process.env.NEXT_PUBLIC_NEWS_API_KEY,
+        language: 'en',
+        sortBy: 'relevancy', // Changed from 'publishedAt' to 'relevancy'
+        pageSize: 30, // Limit results to get more relevant ones
+        searchIn: 'title,description', // Search in both title and description
       }
 
-      // Filter out ads, irrelevant content, and duplicates
+      const response = await axios.get(`https://newsapi.org/v2/everything`, {
+        params: searchParams,
+      })
+
+      if (response.data.articles.length === 0) {
+        // If no results found, try to suggest a corrected query
+        const words = query.split(' ')
+        const correctedWords = words.map(word => {
+          // Simple spell check using common misspellings
+          const commonMisspellings: { [key: string]: string } = {
+            'tecnology': 'technology',
+            'bussiness': 'business',
+            'entertainment': 'entertainment',
+            'politcs': 'politics',
+            'sciense': 'science',
+            'healt': 'health',
+            'sport': 'sports',
+            'enviroment': 'environment',
+            'educacion': 'education',
+            'economy': 'economy',
+            'weather': 'weather',
+            'space': 'space',
+            'art': 'art',
+            'food': 'food',
+            'travel': 'travel',
+            'fashion': 'fashion',
+            'music': 'music',
+            'movie': 'movies',
+            'book': 'books',
+            'game': 'gaming',
+          }
+          return commonMisspellings[word.toLowerCase()] || word
+        })
+        const correctedQuery = correctedWords.join(' ')
+        
+        if (correctedQuery !== query) {
+          setSuggestedQuery(correctedQuery)
+          setSearchError(`No results found for "${query}". Did you mean "${correctedQuery}"?`)
+        } else {
+          setSearchError(`No results found for "${query}". Please try a different search term.`)
+        }
+        setArticles([])
+        return
+      }
+
+      // Enhanced filtering of articles for better relevance
       const filteredArticles = response.data.articles.reduce((acc: Article[], current: Article) => {
         // Skip if article is missing essential information
         if (!current.title || !current.description || !current.url) {
@@ -267,48 +299,67 @@ export default function Home() {
         const title = current.title.toLowerCase()
         const description = current.description.toLowerCase()
         const content = `${title} ${description}`
+        const searchTerms = query.toLowerCase().split(' ')
 
-        // Keywords that indicate ads or irrelevant content
-        const adKeywords = ['sponsored', 'advertisement', 'promoted', 'advert', 'promotion', 'sponsor', 'buy now', 'shop now', 'limited time', 'offer']
-        const irrelevantKeywords = ['click here', 'subscribe now', 'sign up', 'newsletter', 'subscribe to', 'follow us', 'like us', 'share this']
+        // Calculate relevance score
+        let relevanceScore = 0
+        
+        // Higher score for exact matches in title
+        searchTerms.forEach(term => {
+          if (title.includes(term)) {
+            relevanceScore += 3
+          }
+          if (description.includes(term)) {
+            relevanceScore += 1
+          }
+        })
 
-        // Check if article is an ad or irrelevant
-        const isAd = adKeywords.some(keyword => title.includes(keyword) || description.includes(keyword))
-        const isIrrelevant = irrelevantKeywords.some(keyword => title.includes(keyword) || description.includes(keyword))
+        // Check if the article is actually about the search topic
+        const isRelevant = searchTerms.some(term => {
+          // Check if the term appears in a meaningful context
+          const contextPattern = new RegExp(`\\b${term}\\b`, 'i')
+          return contextPattern.test(content)
+        })
 
-        // Enhanced topic relevance check - only apply if a category is selected
-        let isRelevant = true
-        if (selectedTopic) {
-          const currentTopic = selectedTopic.toLowerCase()
-          const topicKeywords = categoryKeywords[currentTopic] || [currentTopic]
-          isRelevant = topicKeywords.some(keyword => 
-            content.includes(keyword) && 
-            (content.includes(` ${keyword} `) || 
-             content.startsWith(`${keyword} `) || 
-             content.endsWith(` ${keyword}`))
-          )
+        // Skip if the article is not relevant enough
+        if (!isRelevant || relevanceScore < 1) {
+          return acc
         }
 
-        // Check for duplicates
-        const isDuplicate = acc.some(article => 
-          article.title.toLowerCase() === title || 
-          article.url === current.url
-        )
-
-        // Only add if article is not an ad, is relevant, and not a duplicate
-        if (!isAd && !isIrrelevant && isRelevant && !isDuplicate) {
-          acc.push(current)
+        // Add relevance score to the article
+        const articleWithScore = {
+          ...current,
+          relevanceScore
         }
+
+        acc.push(articleWithScore)
         return acc
       }, [])
 
+      // Sort articles by relevance score
+      const sortedArticles = filteredArticles.sort((a: Article, b: Article) => 
+        (b.relevanceScore || 0) - (a.relevanceScore || 0)
+      )
+
+      // Take only the most relevant articles
+      const relevantArticles = sortedArticles.slice(0, 20)
+
       // Categorize articles for top cards
-      const topThreeArticles = categorizeArticles(filteredArticles)
-      const remainingArticles = filteredArticles.filter((article: Article) => !topThreeArticles.includes(article))
+      const topThreeArticles = categorizeArticles(relevantArticles.map((article: Article): ScoredArticle => ({
+        ...article,
+        scores: {
+          king: article.relevanceScore || 0,
+          queen: article.relevanceScore || 0,
+          jack: article.relevanceScore || 0
+        }
+      })))
+      const remainingArticles = relevantArticles.filter((article: Article) => !topThreeArticles.includes(article as ScoredArticle))
 
       setArticles([...topThreeArticles, ...remainingArticles])
     } catch (error) {
       console.error('Error fetching news:', error)
+      setSearchError('An error occurred while fetching news. Please try again.')
+      setArticles([])
     } finally {
       setLoading(false)
     }
@@ -525,10 +576,19 @@ export default function Home() {
                     >
                       {index === 0 ? 'K' : index === 1 ? 'Q' : 'J'}
                     </div>
-                    <a
-                      href={article.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <Link
+                      href={{
+                        pathname: '/article',
+                        query: {
+                          title: article.title,
+                          description: article.description,
+                          url: article.url,
+                          urlToImage: article.urlToImage,
+                          publishedAt: article.publishedAt,
+                          source: article.source.name,
+                          content: article.content,
+                        },
+                      }}
                       className="block h-full group"
                     >
                       <article className="bg-gray-800 rounded-xl shadow-lg overflow-hidden h-full hover:shadow-xl transition-all duration-500 cursor-pointer border border-gray-700 news-card">
@@ -567,12 +627,13 @@ export default function Home() {
                           </div>
                         </div>
                       </article>
-                    </a>
+                    </Link>
                   </div>
                 ))}
               </div>
             </div>
 
+            {/* Search Form */}
             <form onSubmit={handleSearch} className="max-w-xl mx-auto mb-6 animate-slide-up">
               <div className="relative group">
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-lg blur-sm group-hover:blur-md transition-all duration-500"></div>
@@ -580,7 +641,11 @@ export default function Home() {
                   <input
                     type="text"
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value)
+                      setSearchError(null)
+                      setSuggestedQuery(null)
+                    }}
                     placeholder="Search for news..."
                     className="w-full px-4 py-2 pl-12 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 group-hover:shadow-lg text-sm bg-gray-800/90 text-gray-100 placeholder-gray-400"
                   />
@@ -602,6 +667,22 @@ export default function Home() {
                   )}
                 </div>
               </div>
+              {searchError && (
+                <div className="mt-2 text-sm text-red-400 animate-fade-in">
+                  {searchError}
+                  {suggestedQuery && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery(suggestedQuery)
+                        fetchNews(suggestedQuery)
+                      }}
+                      className="ml-2 text-blue-400 hover:text-blue-300 underline"
+                    >
+                      Try this instead
+                    </button>
+                  )}
+                </div>
+              )}
             </form>
 
             <style jsx global>{`
@@ -673,11 +754,20 @@ export default function Home() {
               <h2 className="text-2xl font-semibold mb-8 text-center animate-fade-in text-gray-100">More Stories</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {remainingNews.map((article, index) => (
-                  <a
+                  <Link
                     key={index}
-                    href={article.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href={{
+                      pathname: '/article',
+                      query: {
+                        title: article.title,
+                        description: article.description,
+                        url: article.url,
+                        urlToImage: article.urlToImage,
+                        publishedAt: article.publishedAt,
+                        source: article.source.name,
+                        content: article.content,
+                      },
+                    }}
                     className={`block h-full group perspective card-reveal card-reveal-delay-${(index % 6) + 1}`}
                     onMouseEnter={() => handleCardHover(index + 3)}
                     onMouseLeave={handleCardLeave}
@@ -722,7 +812,7 @@ export default function Home() {
                         </div>
                       </div>
                     </article>
-                  </a>
+                  </Link>
                 ))}
               </div>
             </div>
